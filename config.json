@@ -1,0 +1,28 @@
+{
+    "_comment1": "正则表达式模式，用于匹配敏感数据",
+    "patterns": {
+        "phone": "(?:(?:\\+?86)?(?:1[3-9]\\d{9}))",
+        "id_card": "(?:\\d{17}[0-9Xx]|\\d{15})",
+        "email": "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}"
+    },
+    "_comment2": "需要扫描的目录列表",
+    "directories": [
+        "../files",
+        "D://Files"
+    ],
+    "_comment3": "需要扫描的文件类型",
+    "file_types": [
+        ".xls",
+        ".xlsx",
+        ".xlsm",
+        ".csv",
+        ".txt",
+        "#.log",
+        "#.doc",
+        "#.docx"
+    ],
+    "_comment4": "扫描目录的层数",
+    "max_depth": 10,
+    "_comment5": "扫描程序的进程数",
+    "threads": 8
+}
