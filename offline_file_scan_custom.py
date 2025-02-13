@@ -9,6 +9,8 @@ from datetime import datetime
 import pandas as pd  # 使用 pandas 读取 Excel 文件
 #import threading
 from concurrent.futures import ProcessPoolExecutor
+import warnings
+warnings.filterwarnings('ignore')
 
 # 工具函数
 def column_number_to_letter(col_num):
@@ -26,10 +28,10 @@ def load_config(config_path='config.json'):
         return json.load(f)
 
 
-def generate_output_filename(prefix='sensitive_data_report'):
-    # 生成带有时间戳的输出文件名
+def generate_output_filename(prefix='sensitive_data_report', mode='full'):
+    # 生成带有时间戳的输出文件名，并根据模式添加标识
     current_datetime = datetime.now().strftime('%Y%m%d_%H%M%S')
-    return f"{prefix}_{current_datetime}.csv"
+    return f"{prefix}_{mode}_{current_datetime}.csv"
 
 
 def generate_log_filename():
@@ -174,21 +176,24 @@ def scan_excel(file_path, patterns, log_file):
                                     [file_path, sheet_name, row_num + 1, column_number_to_letter(col_num + 1), key,
                                      cell])
         else:
-            # 使用 pandas 读取新版 .xlsx 和 .xlsm 文件
-            dfs = pd.read_excel(file_path, sheet_name=None)  # 读取所有 Sheet
+            # 使用 pandas 读取新版 .xlsx 和 .xlsm 文件（需显式指定engine）
+            dfs = pd.read_excel(file_path, sheet_name=None, dtype=str, engine='openpyxl')  # 读取所有 Sheet
             for sheet_name, df in dfs.items():
-                for row_num, row in df.iterrows():
-                    row_num: int
-                    for col_num, cell in enumerate(row, start=1):
+                df = df.fillna('')  # 处理空值
+                for df_row_num, row in df.iterrows():
+                    for col_num, (_, cell_value) in enumerate(row.items(), start=1):
+                        cell_str = str(cell_value).strip()
+                        # 计算实际Excel行号（假设有标题行）
+                        xlsx_row_num = df_row_num + 2
                         for key, pattern in patterns.items():
-                            if pattern.search(str(cell)):
+                            if pattern.search(cell_str):
                                 results.append([
                                     file_path,
                                     sheet_name,
-                                    row_num + 1,  # pandas 行号从 0 开始
+                                    xlsx_row_num,  # 修正行号计算
                                     column_number_to_letter(col_num),
                                     key,
-                                    str(cell)
+                                    cell_str[:100]  # 截断超长内容
                                 ])
     except Exception as e:
         log_error_to_log_file(log_file, f"处理 Excel 文件 {file_path} 时发生错误: {e}")
@@ -234,13 +239,18 @@ def scan_word(file_path, patterns, log_file):
     return results
 
 
-def save_results(results, output_file=None):
+def save_results(results, output_mode, output_file=None):
     # 将扫描结果保存到 CSV 文件
     if not output_file:
-        output_file = generate_output_filename()
+        output_file = generate_output_filename(mode=output_mode)  # 根据输出模式生成文件名
+
+    headers = ['文件名', 'Sheet', '行号', '列号', '敏感类型', '敏感内容']
+    if output_mode == 'summary':
+        headers.append('统计信息')
+
     with open(output_file, mode='w', newline='', encoding='utf-8-sig') as f:
         writer = csv.writer(f)
-        writer.writerow(['文件名', 'Sheet', '行号', '列号', '敏感类型', '敏感内容'])
+        writer.writerow(headers)
         writer.writerows(results)
 
 
@@ -252,6 +262,7 @@ def main():
     file_types = config.get('file_types', [])
     max_depth = config.get('max_depth', None)
     threads = config.get('threads', 1)  # 使用配置中的线程数
+    output_mode = config.get('output_mode', 'all').lower()  # 新增输出模式配置
 
     log_file = generate_log_filename()
 
@@ -272,13 +283,33 @@ def main():
         for future in futures:
             results.extend(future.result())
 
+    # 根据输出模式处理结果
+    if output_mode == 'summary':
+        # 统计每种敏感类型的数量
+        type_count = {}
+        for item in results:
+            sensitive_type = item[4]
+            type_count[sensitive_type] = type_count.get(sensitive_type, 0) + 1
+        # 生成摘要结果
+        seen = set()
+        summary_results = []
+        for item in results:
+            # 使用文件名和敏感类型作为唯一标识
+            identifier = (os.path.abspath(item[0]), item[4])
+            if identifier not in seen:
+                seen.add(identifier)
+                # 添加数量统计信息
+                item.append(f"出现次数: {type_count[item[4]]}")
+                summary_results.append(item)
+        results = summary_results
+
     end_time = time.time()
     total_time = end_time - start_time
     print(f"扫描总时间: {total_time:.2f} 秒")
 
     log_total_time(total_time, log_file)
 
-    save_results(results)
+    save_results(results, output_mode)
 
 
 if __name__ == '__main__':
