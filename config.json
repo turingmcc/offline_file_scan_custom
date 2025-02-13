@@ -25,4 +25,6 @@
     "max_depth": 10,
     "_comment5": "扫描程序的进程数",
     "threads": 8
+    "_comment6": "输出文件模式summary,填full或者其他输出全部内容",
+    "output_mode": "summary"
 }
